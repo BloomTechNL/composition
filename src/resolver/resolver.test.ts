@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import { AppScope } from '../scopes/app-scope.js';
-import { RequestScope } from '../scopes/request-scope.js';
-import type { ShortLivedScope } from '../scopes/short-lived-scope.js';
+import { Scope } from '../scopes/scope.js';
 import { Resolver } from './resolver.js';
 
-interface Tenant {
-  tenantId: number;
+class TenantScope extends Scope {
+  public readonly appScope: AppScope;
+  public readonly tenantId: number;
+
+  constructor(appScope: AppScope, tenantId: number) {
+    super();
+    this.appScope = appScope;
+    this.tenantId = tenantId;
+  }
 }
 
 class Greeter {
@@ -24,16 +30,18 @@ class Unregistered {
 let registrations = 0;
 const registerAll = (): void => {
   registrations += 1;
-  Resolver.register(
-    Greeter,
-    (scope: ShortLivedScope<Tenant>) => new Greeter(scope.context.tenantId),
-  );
+  Resolver.register(Greeter, (scope) => {
+    if (!(scope instanceof TenantScope)) {
+      throw new Error('Expected a TenantScope');
+    }
+    return new Greeter(scope.tenantId);
+  });
 };
 
 describe('Resolver', () => {
   it('builds a registered class from the scope it was created with', async () => {
     const resolver = new Resolver(
-      new RequestScope(new AppScope(), { tenantId: 7 }),
+      new TenantScope(new AppScope(), 7),
       registerAll,
     );
     const greeter = await resolver.resolve(Greeter);
@@ -43,7 +51,7 @@ describe('Resolver', () => {
 
   it('returns the same instance within one resolver', async () => {
     const resolver = new Resolver(
-      new RequestScope(new AppScope(), { tenantId: 1 }),
+      new TenantScope(new AppScope(), 1),
       registerAll,
     );
     expect(await resolver.resolve(Greeter)).toBe(
@@ -53,34 +61,26 @@ describe('Resolver', () => {
 
   it('returns a new instance for each resolver', async () => {
     const appScope = new AppScope();
-    const first = new Resolver(
-      new RequestScope(appScope, { tenantId: 1 }),
-      registerAll,
-    );
-    const second = new Resolver(
-      new RequestScope(appScope, { tenantId: 2 }),
-      registerAll,
-    );
+    const first = new Resolver(new TenantScope(appScope, 1), registerAll);
+    const second = new Resolver(new TenantScope(appScope, 2), registerAll);
     expect(await first.resolve(Greeter)).not.toBe(
       await second.resolve(Greeter),
     );
   });
 
   it('runs the registration callback only once', async () => {
-    await new Resolver(
-      new RequestScope(new AppScope(), { tenantId: 1 }),
-      registerAll,
-    ).resolve(Greeter);
-    await new Resolver(
-      new RequestScope(new AppScope(), { tenantId: 2 }),
-      registerAll,
-    ).resolve(Greeter);
+    await new Resolver(new TenantScope(new AppScope(), 1), registerAll).resolve(
+      Greeter,
+    );
+    await new Resolver(new TenantScope(new AppScope(), 2), registerAll).resolve(
+      Greeter,
+    );
     expect(registrations).toBe(1);
   });
 
   it('rejects a class without a registration', async () => {
     const resolver = new Resolver(
-      new RequestScope(new AppScope(), { tenantId: 0 }),
+      new TenantScope(new AppScope(), 0),
       registerAll,
     );
     await expect(resolver.resolve(Unregistered)).rejects.toThrow(

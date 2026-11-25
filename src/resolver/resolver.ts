@@ -1,34 +1,31 @@
-import type { ShortLivedScope } from '../scopes/short-lived-scope.js';
+/* eslint-disable @typescript-eslint/no-explicit-any   */
+/* eslint-disable @typescript-eslint/no-unsafe-function-type   */
 
-type Factory<T, TContext> = (scope: ShortLivedScope<TContext>) => T;
-type Token<T> = abstract new (...args: never[]) => T;
+import type { IScope } from '../scopes/scope.js';
 
-export class Resolver<TContext = undefined> {
-  private static readonly registry = new Map<
-    Token<unknown>,
-    Factory<unknown, never>
-  >();
+type Factory<T> = (scope: IScope) => T;
+
+export class Resolver {
+  private static registry = new Map<Function, Factory<any>>();
   private static registered = false;
-  private readonly instances = new Map<Token<unknown>, unknown>();
-  private readonly requestScope: ShortLivedScope<TContext>;
+  private instances = new Map<Function, any>();
+
+  private readonly scope: IScope;
   private readonly registerAll: () => void;
 
-  constructor(
-    requestScope: ShortLivedScope<TContext>,
-    registerAll: () => void,
-  ) {
-    this.requestScope = requestScope;
+  constructor(scope: IScope, registerAll: () => void) {
+    this.scope = scope;
     this.registerAll = registerAll;
   }
 
-  static register<T, TContext = undefined>(
-    token: Token<T>,
-    factory: Factory<T, TContext>,
+  static register<T>(
+    token: new (...args: any[]) => T,
+    factory: Factory<T>,
   ): void {
     this.registry.set(token, factory);
   }
 
-  async resolve<T>(token: Token<T>): Promise<T> {
+  async resolve<T>(token: new (...args: any[]) => T): Promise<T> {
     if (!Resolver.registered) {
       this.registerAll();
       Resolver.registered = true;
@@ -42,9 +39,7 @@ export class Resolver<TContext = undefined> {
       throw new Error(`No provider found for ${token.name}`);
     }
 
-    const instance = (factory as Factory<unknown, TContext>)(
-      this.requestScope,
-    ) as T;
+    const instance = factory(this.scope) as T;
     this.instances.set(token, instance);
     return instance;
   }

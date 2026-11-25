@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AppScope } from './app-scope.js';
-import { RequestScope } from './request-scope.js';
 import { Scope } from './scope.js';
-import { StartupTaskScope } from './startup-task-scope.js';
 
 describe('Scope', () => {
   it('calls a factory once and caches the result', () => {
@@ -27,21 +25,15 @@ describe('Scope', () => {
   });
 });
 
-describe.each([
-  ['RequestScope', RequestScope],
-  ['StartupTaskScope', StartupTaskScope],
-] as const)('%s', (_name, ShortLived) => {
-  it('is bound to the shared app scope', () => {
-    expect(ShortLived.create().appScope).toBe(AppScope.instance);
+describe('AppScope', () => {
+  it('shares one process-wide instance', () => {
+    expect(AppScope.instance).toBe(AppScope.instance);
   });
 
-  it('exposes the context it was created with', () => {
-    const context = { tenantId: 42 };
-    const scope = ShortLived.create(context);
-    expect(scope.context).toBe(context);
-  });
-
-  it('has an undefined context when created without one', () => {
-    expect(ShortLived.create().context).toBeUndefined();
+  it('caches independently from other AppScope instances', () => {
+    const factory = (): object => ({});
+    expect(new AppScope().resolve(factory)).not.toBe(
+      new AppScope().resolve(factory),
+    );
   });
 });

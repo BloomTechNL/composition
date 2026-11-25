@@ -4,11 +4,11 @@ A small composition root for TypeScript.
 
 `@bloom-group/composition` wires dependencies with plain factory functions instead of decorators or reflection. It gives you:
 
-- **`AppScope`**: dependencies that live as long as the process, such as database pools and configuration.
-- **`RequestScope`**: dependencies that live for one request.
-- **`StartupTaskScope`**: dependencies for work that runs once at startup, such as migrations.
-- **`ShortLivedScope<TContext>`**: the interface both short-lived scopes implement, for factories that work in either. `TContext` is whatever per-request data you define, such as a tenant, a user or a locale.
+- **`Scope`** and **`IScope`**: the base class and interface behind every scope. A scope builds a dependency once and caches it.
+- **`AppScope`**: the scope for dependencies that live as long as the process, such as database pools and configuration.
 - **`Resolver`**: builds registered classes by their constructor, for code that receives a class and needs an instance.
+
+The package ships no request or tenant scope on purpose: what "per request" means differs per application, so you define your own in a few lines (see [Adding your own scopes](#adding-your-own-scopes)).
 
 ## Installation
 
@@ -38,79 +38,87 @@ The cache key is the factory's source text, so write each factory inline in one 
 
 `AppScope.instance` is the process-wide scope. Create `new AppScope()` in tests to get a fresh cache.
 
-### RequestScope and StartupTaskScope
+## Adding your own scopes
 
-A short-lived scope holds a reference to an `AppScope` and a `context` of a type you choose. The library does not care what the context is: a tenant, a user, a locale, a trace id, or nothing at all.
+A scope is a cache with a lifetime. Dependencies that should live as long as the process go in `AppScope`. Dependencies that should live shorter, such as for one HTTP request, one job or one test, go in a scope you create for that lifetime and throw away afterwards. Everything resolved on it is cached until the scope is dropped, so a dependency is shared within one request but never leaks into the next.
+
+Extend `Scope`, and add whatever that lifetime needs to know:
 
 ```ts
-import { RequestScope, StartupTaskScope } from '@bloom-group/composition';
+import { AppScope, type IScope, Scope } from '@bloom-group/composition';
 
-interface Tenant {
-  tenantId: number;
+export class RequestScope extends Scope {
+  constructor(
+    public readonly appScope: AppScope,
+    public readonly tenantId: number,
+  ) {
+    super();
+  }
 }
 
-const scope = RequestScope.create<Tenant>({ tenantId: 42 });
-scope.context.tenantId; // 42
-
-// No context: TContext defaults to undefined.
-const plain = RequestScope.create();
-const startup = StartupTaskScope.create();
+// In your request handler:
+const scope = new RequestScope(AppScope.instance, 42);
 ```
 
-`create` uses `AppScope.instance`. To use another app scope, call the constructor:
+Two conventions make this work:
+
+- **A short-lived scope holds a reference to the longer-lived one** (`appScope`), so its factories can reach singletons. Never the other way around: an `AppScope` dependency must not depend on a request-scoped one, because it would outlive it.
+- **Per-request data lives on the scope** (`tenantId`, a user, a locale, a trace id), so factories read it from there instead of taking it as a parameter everywhere.
+
+Add as many scopes as you have lifetimes, for example a `StartupTaskScope` for migrations or a `JobScope` for queue workers. Because factories only need the capabilities they use, you can type them against a smaller interface and let several scopes satisfy it:
 
 ```ts
-const scope = new RequestScope(new AppScope(), { tenantId: 42 });
+interface TenantScope extends IScope {
+  readonly appScope: AppScope;
+  readonly tenantId: number;
+}
 ```
-
-If you need a "platform" scope next to tenant scopes, model it in your context type, for example `{ tenantId: number } | { platform: true }`.
-
-You can also write your own scope: implement `ShortLivedScope<TContext>` and it works with factories and `Resolver`.
 
 ## Factory functions
 
 Write one factory function per dependency. Resolve request-scoped dependencies on the scope, and singletons on `scope.appScope`:
 
 ```ts
-import type { AppScope, ShortLivedScope } from '@bloom-group/composition';
+import type { AppScope } from '@bloom-group/composition';
 
 export function postgresPool(scope: AppScope): Pool {
   return scope.resolve(() => new Pool(config));
 }
 
-export function flowerRepository(
-  scope: ShortLivedScope<Tenant>,
-): FlowerRepository {
+export function flowerRepository(scope: RequestScope): FlowerRepository {
   return scope.resolve(
-    () =>
-      new FlowerRepository(
-        postgresPool(scope.appScope),
-        scope.context.tenantId,
-      ),
+    () => new FlowerRepository(postgresPool(scope.appScope), scope.tenantId),
   );
 }
 ```
 
 ## Resolver
 
-Register a factory for each class once, then resolve classes through a `Resolver` bound to a scope. The registration callback runs on the first `resolve` in the process. Each `Resolver` caches its own instances.
+Register a factory for each class once, then resolve classes through a `Resolver` bound to a scope. The registration callback runs on the first `resolve` in the process. Each `Resolver` caches its own instances. Factories receive the scope as an `IScope`, so narrow it to your own scope type (here with `instanceof`).
 
 ```ts
-import { Resolver } from '@bloom-group/composition';
+import { Resolver, type IScope } from '@bloom-group/composition';
+
+function requestScope(scope: IScope): RequestScope {
+  if (!(scope instanceof RequestScope)) {
+    throw new Error('Expected a RequestScope');
+  }
+  return scope;
+}
 
 export function registerAllInstances(): void {
   Resolver.register(
     CreateFlower,
-    (scope) => new CreateFlower(flowerRepository(scope)),
+    (scope) => new CreateFlower(flowerRepository(requestScope(scope))),
   );
   Resolver.register(
     GetFlowers,
-    (scope) => new GetFlowers(flowerRepository(scope)),
+    (scope) => new GetFlowers(flowerRepository(requestScope(scope))),
   );
 }
 
 const resolver = new Resolver(
-  RequestScope.create<Tenant>({ tenantId: 42 }),
+  new RequestScope(AppScope.instance, 42),
   registerAllInstances,
 );
 const handler = await resolver.resolve(CreateFlower);
@@ -130,7 +138,7 @@ const handler = await resolver.resolve(CreateFlower);
 Call factory functions directly with a fresh scope:
 
 ```ts
-const scope = new RequestScope(new AppScope(), { tenantId: 1 });
+const scope = new RequestScope(new AppScope(), 1);
 const repository = flowerRepository(scope);
 ```
 
