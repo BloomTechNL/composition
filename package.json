@@ -1,0 +1,67 @@
+{
+  "name": "@bloom-group/composition",
+  "version": "1.0.0",
+  "description": "A small composition root for TypeScript: app, request and startup-task scopes plus a class-token resolver, without decorators or reflection.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepare": "husky",
+    "prepublishOnly": "npm run deps:audit && npm run typecheck && npm test && npm run build",
+    "lint": "eslint src --max-warnings=0",
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "deps:audit": "pnpm audit --audit-level low",
+    "deps:install": "pnpm install --frozen-lockfile --lockfile-only --ignore-scripts && npm run deps:audit && pnpm install --frozen-lockfile --ignore-scripts && npm run prepare"
+  },
+  "keywords": [
+    "composition-root",
+    "dependency-injection",
+    "di",
+    "ioc",
+    "scope",
+    "typescript"
+  ],
+  "author": "Bloom Group",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BloomTechNL/composition.git"
+  },
+  "homepage": "https://github.com/BloomTechNL/composition#readme",
+  "bugs": {
+    "url": "https://github.com/BloomTechNL/composition/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24",
+    "eslint": "^10.15.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.10.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.0.5"
+  },
+  "packageManager": "pnpm@12.8.1"
+}
