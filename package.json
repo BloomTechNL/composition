@@ -1,6 +1,6 @@
 {
   "name": "@bloom-group/composition",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A small composition root for TypeScript: app, request and startup-task scopes plus a class-token resolver, without decorators or reflection.",
   "type": "module",
   "main": "lib/index.js",
