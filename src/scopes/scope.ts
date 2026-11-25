@@ -1,10 +1,6 @@
 type Factory<T> = () => T;
 
-export interface IScope {
-  resolve<T>(factory: Factory<T>, key?: string): T;
-}
-
-export class Scope implements IScope {
+export class Scope {
   private readonly instances = new Map<string, unknown>();
 
   resolve<T>(factory: Factory<T>, key?: string): T {
